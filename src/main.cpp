@@ -1,64 +1,44 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/timers.h>
 
 #include <esp32-hal-timer.h>
+
 #include "CoinDetector.h"
+#include "CoinSorter.h"
+#include "AlgoSorter.h"
+
 
 
 const char *TAG = "app";
 
 
-LiquidCrystal_I2C *lcd;
-IRAM_ATTR CoinDetector *detector;
+static LiquidCrystal_I2C *lcd;
+static AlgoSorter *sorter;
 
-void IRAM_ATTR hookStart() {
-    log_d("hookStart");
-//    detector->itrStart();
-}
+static void callbackSuccess(uint64_t micros, uint16_t adc);
 
-void IRAM_ATTR hookEnd() {
-    log_d("hookEnd");
-//    detector->itrEnd();
-    log_d("itrEnd");
-    log_e("%s", __func__);
-    BaseType_t xHigherPriorityTaskWoken, xResult;
-    xResult = xEventGroupSetBitsFromISR(detector->eventHandle, CoinDetector::BIT_END, &xHigherPriorityTaskWoken);
-
-    log_i("res %d", xResult);
-    if (detector->state != CoinDetector::State::COIN_PASS_MEASURE_SENSOR) {
-        log_e("itrEnd invalid state");
-        return;
-    }
-
-
-    timerStop(detector->coinTimer);
-    detector->lastMicros = timerReadMicros(detector->coinTimer);
-
-
-    detector->state = CoinDetector::State::COIN_NOT_IN_CHANNEL;
-    if (xResult != pdFAIL) {
-        log_i("event sent");
-        portYIELD_FROM_ISR();
-    } else {
-        log_i("event not sent");
-    }
-}
-
-void IRAM_ATTR hookTimer() {
-    log_d("hookTimer");
-//    detector->itrTimer();
-}
+static void callbackFail();
 
 void callbackFail() {
     ESP_LOGI(TAG, "fail");
 }
 
 void callbackSuccess(uint64_t micros, uint16_t adc) {
-    ESP_LOGI(TAG, "success %d %d", micros, adc);
+    log_i("success");
+    log_i("micros %lu", micros);
+    log_i("adc %hu", adc);
+
+    CoinSorter::CoinDescriptor *descriptor = sorter->Predict(micros, adc);
+//
+    ESP_LOGI(TAG, "Predict: %s %d", descriptor->displayName, descriptor->value);
 }
+
+
 
 void setup() {
     Serial.begin(115200);
@@ -75,19 +55,27 @@ void setup() {
     lcd->print("asd");
 
     //detector init
-    CoinDetector::Config detectorCfg = {
+    cd_config_t detectorCfg = {
             .gpioStart = 34,
             .gpioMeasure = 35,
             .gpioEnd = 32,
-            .timerId = 2,
-            .hookStart = hookStart,
-            .hookEnd = hookEnd,
-            .hookTimer = hookTimer,
+            .timerNumCoin = 0,
+            .timerNumAdc = 1,
             .callbackSuccess = callbackSuccess,
             .callbackFail = callbackFail,
-
     };
-    detector = new CoinDetector(detectorCfg);
+
+//    detectorCfg.callbackSuccess(3,4);
+
+    sorter = new AlgoSorter();
+    sorter->AddCoin({.displayName = "2.00", .value = 200, .adcValue =  2819, .time = 150260});
+//    sorter->AddCoin({.displayName = "5.00", .value = 500, .adcValue =  3238, .time = 159431});
+    sorter->AddCoin({.displayName = "10.00", .value = 1000, .adcValue =  4038, .time = 171285});
+
+    sorter->Init();
+
+    cd_init(detectorCfg);
+
 }
 
 void loop() {

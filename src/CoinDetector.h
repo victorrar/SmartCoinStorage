@@ -5,66 +5,50 @@
 #ifndef SMARTCOINSTORAGE_COINDETECTOR_H
 #define SMARTCOINSTORAGE_COINDETECTOR_H
 
-#include <functional>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-typedef void (*HookFunc)(void);
+#include <stdint.h>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
+#include <esp32-hal-timer.h>
 
-class CoinDetector {
-public:
+typedef void (*cd_CallbackSuccessFunc)(uint64_t micros, uint16_t adc);
 
-    struct Config {
-        int gpioStart;
-        int gpioMeasure;
-        int gpioEnd;
-        uint8_t timerId;
-        HookFunc hookStart;
-        HookFunc hookEnd;
-        HookFunc hookTimer;
-        std::function<void(uint64_t micros, uint16_t adc)> callbackSuccess;
-        std::function<void()> callbackFail;
+typedef void (*cd_CallbackFailFunc)(void);
 
-    };
+typedef struct {
+    int gpioStart;
+    int gpioMeasure;
+    int gpioEnd;
+    uint8_t timerNumCoin;
+    uint8_t timerNumAdc;
+    cd_CallbackSuccessFunc callbackSuccess;
+    cd_CallbackFailFunc callbackFail;
 
-    enum class State {
-        COIN_NOT_IN_CHANNEL,
-        COIN_PASS_START_SENSOR,
-        COIN_PASS_MEASURE_SENSOR,
-        COIN_PASS_END_SENSOR,
-    };
-
-    explicit CoinDetector(const Config &config);
-
-    void IRAM_ATTR itrStart();
-
-    void IRAM_ATTR itrEnd();
-
-    void IRAM_ATTR itrTimer();
-
-    static const EventBits_t BIT_START = (1 << 0);
-    static const EventBits_t BIT_END = (1 << 1);
-    static const EventBits_t BIT_FAIL = (1 << 2);
-
-    EventGroupHandle_t eventHandle;
-
-    volatile State state = State::COIN_NOT_IN_CHANNEL;
-    hw_timer_t *coinTimer;
-    volatile uint64_t lastMicros;
-protected:
-    [[noreturn]] static void workerTask(void *pvParameters);
-
-    Config config;
-    volatile uint16_t lastADC;
-
-    void init();
+} cd_config_t;
 
 
-private:
+typedef enum {
+    CD_COIN_NOT_IN_CHANNEL,
+    CD_COIN_PASS_START_SENSOR,
+    CD_COIN_PASS_MEASURE_SENSOR,
+    CD_COIN_PASS_END_SENSOR,
+} StateEnum_t;
+
+//const
+const EventBits_t CD_BIT_START = (1 << 0);
+const EventBits_t CD_BIT_END = (1 << 1);
+const EventBits_t CD_BIT_FAIL = (1 << 2);
 
 
-    TaskHandle_t workerHandle;
+//public function prototypes
+void cd_init(cd_config_t newConfig);
 
-};
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif //SMARTCOINSTORAGE_COINDETECTOR_H
